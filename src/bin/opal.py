@@ -7,7 +7,7 @@
 # Usage: 
 #   opal.py --help
 #
-# Examples of Opal web services:
+# Examples of Opal web services on which GET can be performed:
 #
 #  /datasources
 #    All datasources
@@ -50,26 +50,8 @@ import sys
 import pycurl
 import base64
 import json
-import argparse
 import cStringIO
-
-#
-# Parse arguments
-#
-parser = argparse.ArgumentParser(description='REST call to Opal. Output the result on the stdout.')
-parser.add_argument('--opal', '-o', required=True, help='Opal server base url')
-parser.add_argument('--user', '-u', required=True, help='User name')
-parser.add_argument('--password', '-p', required=True, help='User password')
-parser.add_argument('--ws','-w', required=True, help='Web service path, for instance: /datasource/xxx/table/yyy/variable/vvv')
-#parser.add_argument('--cert', '-c', required=False, help='Certificate (PEM)')
-#parser.add_argument('--key', '-k', required=False, help='Key (PEM)')
-parser.add_argument('--method', '-m', required=False, help='HTTP method (default is GET, others are POST, PUT, DELETE, OPTIONS)')
-parser.add_argument('--accept', '-a', required=False, help='Accept header (default is application/json)')
-parser.add_argument('--content-type', '-ct', required=False, help='Content-Type header (default is application/json in case of POST or PUT requests)')
-parser.add_argument('--stdin', '-i', action='store_true', help='Read the request content from the stdin.')
-parser.add_argument('--json', '-j', action='store_true', help='Pretty JSON formatting of the response')
-parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
-args = parser.parse_args()
+import os.path
 
 #
 # Opal client
@@ -79,25 +61,35 @@ class OpalClient:
     self.base_url = base_url
     self.curl_options = {}
     self.headers = {}
-    if self.base_url.startswith('https:'):
-      self.curl_options[pycurl.SSL_VERIFYPEER] = 0
 
   def credentials(self, user, password):
-    self.user = user
-    self.password = password
-    self.headers['Authorization'] = 'X-Opal-Auth ' + base64.b64encode(user + ':' + password)
-    return self
+    return self.header('Authorization', 'X-Opal-Auth ' + base64.b64encode(user + ':' + password))
 
-  def keys(self, private, certificate):
-    self.private_key = private
-    #c.setopt(c.SSLCERT, args.cert)
-    self.certificate = certificate
-    #c.setopt(c.SSLKEY, args.key)
+  def keys(self, cert_file, key_file, key_pwd=None, ca_certs=None):
+    self.curl_option(pycurl.SSLCERT, cert_file)
+    self.curl_option(pycurl.SSLKEY, key_file)
+    if key_pwd:
+      self.curl_option(pycurl.KEYPASSWD, key_pwd)
+    if ca_certs:
+      self.curl_option(pycurl.CAINFO, ca_certs)
     self.headers.pop('Authorization',None)
     return self
 
+  def verify_peer(self, verify):
+    return self.curl_option(pycurl.SSL_VERIFYPEER, verify)
+
+  def verify_host(self, verify):
+    return self.curl_option(pycurl.SSL_VERIFYHOST, verify)
+
+  def ssl_version(self, version):
+    return self.curl_option(pycurl.SSLVERSION, version)
+
   def curl_option(self, opt, value):
     self.curl_options[opt] = value
+    return self
+
+  def header(self, key, value):
+    self.headers[key] = value
     return self
 
   def request(self):
@@ -206,6 +198,16 @@ class OpalRequest:
     self.curl_option(pycurl.READFUNCTION, reader.read)
     return self
 
+  def content_file(self, filename):
+    if self._verbose:
+      print '* File Content:'
+      print filename
+    self.curl_option(pycurl.POST,1)
+    self.curl_option(pycurl.POSTFIELDSIZE,os.path.getsize(filename))
+    reader = open(filename, 'rb')
+    self.curl_option(pycurl.READFUNCTION, reader.read)
+    return self
+
   def send(self):
     curl = self.__build_request()
     hbuf = HeaderStorage()
@@ -270,48 +272,73 @@ class OpalResponse:
     return self.content
 
 #
-# Build and send request
+# Main
 #
-opal = OpalClient(args.opal)
+if __name__ == "__main__":
+  import argparse
 
-if args.user:
-  opal.credentials(args.user, args.password)
-else:
-  opal.keys(args.key, args.cert)
+  # Parse arguments
+  parser = argparse.ArgumentParser(description='REST call to Opal. Output the result on the stdout.')
+  parser.add_argument('--opal', '-o', required=True, help='Opal server base url')
+  parser.add_argument('--user', '-u', required=True, help='User name')
+  parser.add_argument('--password', '-p', required=True, help='User password')
+  parser.add_argument('--ws','-w', required=True, help='Web service path, for instance: /datasource/xxx/table/yyy/variable/vvv')
+  #parser.add_argument('--cert', '-c', required=False, help='Certificate (PEM)')
+  #parser.add_argument('--key', '-k', required=False, help='Key (PEM)')
+  parser.add_argument('--method', '-m', required=False, help='HTTP method (default is GET, others are POST, PUT, DELETE, OPTIONS)')
+  parser.add_argument('--accept', '-a', required=False, help='Accept header (default is application/json)')
+  parser.add_argument('--content-type', '-ct', required=False, help='Content-Type header (default is application/json in case of POST or PUT requests)')
+  parser.add_argument('--stdin', '-i', action='store_true', help='Read the request content from the stdin.')
+  parser.add_argument('--json', '-j', action='store_true', help='Pretty JSON formatting of the response')
+  parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+  args = parser.parse_args()
 
-request = opal.request()
-request.fail_on_error()
-if args.accept:
-  request.accept(args.accept)
-else:
-  request.accept_json()
-if args.content_type:
-  request.content_type(args.content)
-else:
-  request.content_type_json()
-if args.verbose:
-  request.verbose()
+  # Build and send request
+  opal = OpalClient(args.opal)
 
-try:
-  # send request
-  request.method(args.method).resource(args.ws);
-  if args.stdin:
-    request.content(sys.stdin.read())
-  response = request.send()
+  if args.opal.startswith('https:'):
+    opal.verify_peer(0)
+    #opal.verify_host(0)
+    #opal.ssl_version(3)
 
-  # format response    
-  res = response.content
-  if args.json:
-    res = response.pretty_json()
-  elif args.method in ['OPTIONS']:
-    res = response.headers['Allow']
+  if args.user:
+    opal.credentials(args.user, args.password)
+  else:
+    opal.keys(args.key, args.cert)
 
-  # output to stdout
-  print res
-except Exception,e :
-  print e
-  sys.exit(2)
-except pycurl.error, error:
-  errno, errstr = error
-  print >> sys.stderr, 'An error occurred: ', errstr
-  sys.exit(2)
+  request = opal.request()
+  request.fail_on_error()
+  if args.accept:
+    request.accept(args.accept)
+  else:
+    request.accept_json()
+  if args.content_type:
+    request.content_type(args.content)
+  else:
+    request.content_type_json()
+  if args.verbose:
+    request.verbose()
+
+  try:
+    # send request
+    request.method(args.method).resource(args.ws);
+    if args.stdin:
+      request.content(sys.stdin.read())
+    response = request.send()
+
+    # format response    
+    res = response.content
+    if args.json:
+      res = response.pretty_json()
+    elif args.method in ['OPTIONS']:
+      res = response.headers['Allow']
+
+    # output to stdout
+    print res
+  except Exception,e :
+    print e
+    sys.exit(2)
+  except pycurl.error, error:
+    errno, errstr = error
+    print >> sys.stderr, 'An error occurred: ', errstr
+    sys.exit(2)
