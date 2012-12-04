@@ -11,9 +11,6 @@ def add_opal_arguments(parser):
   parser.add_argument('--user', '-u', required=True, help='User name')
   parser.add_argument('--password', '-p', required=True, help='User password')
 
-def foo(args):
-  print args
-
 # Parse arguments
 parser = argparse.ArgumentParser(description='Opal command line.')
 subparsers = parser.add_subparsers(title='sub-commands', help='Available sub-commands. Use --help option on the sub-command for more details.')
