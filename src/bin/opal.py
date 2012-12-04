@@ -56,118 +56,261 @@ import cStringIO
 #
 # Parse arguments
 #
-parser = argparse.ArgumentParser(description='REST call to Opal.')
+parser = argparse.ArgumentParser(description='REST call to Opal. Output the result on the stdout.')
 parser.add_argument('--opal', '-o', required=True, help='Opal server base url')
-parser.add_argument('--user', '-u', required=False, help='User name')
-parser.add_argument('--password', '-p', required=False, help='User password')
-parser.add_argument('--cert', '-c', required=False, help='Certificate (PEM)')
-parser.add_argument('--key', '-k', required=False, help='Key (PEM)')
+parser.add_argument('--user', '-u', required=True, help='User name')
+parser.add_argument('--password', '-p', required=True, help='User password')
+parser.add_argument('--ws','-w', required=True, help='Web service path, for instance: /datasource/xxx/table/yyy/variable/vvv')
+#parser.add_argument('--cert', '-c', required=False, help='Certificate (PEM)')
+#parser.add_argument('--key', '-k', required=False, help='Key (PEM)')
 parser.add_argument('--method', '-m', required=False, help='HTTP method (default is GET, others are POST, PUT, DELETE, OPTIONS)')
 parser.add_argument('--accept', '-a', required=False, help='Accept header (default is application/json)')
 parser.add_argument('--content-type', '-ct', required=False, help='Content-Type header (default is application/json in case of POST or PUT requests)')
-parser.add_argument('--ws', '-w', required=True, help='Web service path, for instance: /datasource/xxx/table/yyy/variable/vvv')
-parser.add_argument('--out', '-f', required=False, help='Path to the file where response is to be written. Otherwise response is printed on the stdout.')
+parser.add_argument('--stdin', '-i', action='store_true', help='Read the request content from the stdin.')
 parser.add_argument('--json', '-j', action='store_true', help='Pretty JSON formatting of the response')
 parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
 args = parser.parse_args()
 
 #
-# Opal request
+# Opal client
 #
-class OpalRequest:
-  def __init__(self):
-    self.headers = { 'Accept': 'application/json' }
+class OpalClient:
+  def __init__(self, base_url):
+    self.base_url = base_url
+    self.curl_options = {}
+    self.headers = {}
+    if self.base_url.startswith('https:'):
+      self.curl_options[pycurl.SSL_VERIFYPEER] = 0
 
-  def init_connection(self):
-    self.curl = pycurl.Curl()
-    self.curl.setopt(self.curl.SSL_VERIFYPEER, 0)
-    self.curl.setopt(self.curl.CONNECTTIMEOUT, 5)
-    #self.curl.setopt(self.curl.TIMEOUT, 8)
-    self.curl.setopt(self.curl.FAILONERROR, True)
-    hlist = []
-    for h in self.headers:
-      hlist.append(h + ": " + self.headers[h])
-    self.curl.setopt(self.curl.HTTPHEADER, hlist)
-    self.curl.setopt(self.curl.VERBOSE, self.verbose)
-
-  def authenticate(self, user, password):
-    credentials = base64.b64encode(user + ':' + password)
-    self.headers['Authorization'] = 'X-Opal-Auth ' + credentials
+  def credentials(self, user, password):
+    self.user = user
+    self.password = password
+    self.headers['Authorization'] = 'X-Opal-Auth ' + base64.b64encode(user + ':' + password)
+    return self
 
   def keys(self, private, certificate):
     self.private_key = private
     #c.setopt(c.SSLCERT, args.cert)
     self.certificate = certificate
     #c.setopt(c.SSLKEY, args.key)
+    self.headers.pop('Authorization',None)
+    return self
+
+  def curl_option(self, opt, value):
+    self.curl_options[opt] = value
+    return self
+
+  def request(self):
+    return OpalRequest(self)
+
+#
+# Opal request
+#
+class OpalRequest:
+  def __init__(self, opal_client):
+    self.client = opal_client
+    self.curl_options = {}
+    self.headers = { 'Accept': 'application/json' }
+    self._verbose = False
+
+  def curl_option(self, opt, value):
+    self.curl_options[opt] = value
+    return self
+
+  def timeout(self, value):
+    return self.curl_option(pycurl.TIMEOUT, value)
+
+  def connection_timeout(self, value):
+    return self.curl_option(pycurl.CONNECTTIMEOUT, value)
+
+  def verbose(self):
+    self._verbose = True
+    return self.curl_option(pycurl.VERBOSE, True)
+
+  def fail_on_error(self):
+    return self.curl_option(pycurl.FAILONERROR, True)
+
+  def header(self, key, value):
+    self.headers[key] = value
+    return self
 
   def accept(self, value):
-    self.headers['Accept'] = value
+    return self.header('Accept', value)
 
   def content_type(self, value):
-    self.headers['Content-Type'] = value
+    return self.header('Content-Type', value)
 
-  def verbose(self, verbose):
-    self.verbose = verbose
+  def accept_json(self):
+    return self.accept('application/json')
+
+  def content_type_json(self):
+    return self.content_type('application/json')
 
   def method(self, method):
     if not method:
       self.method = 'GET'
-    elif m in ['GET','DELETE','PUT','POST','OPTIONS']:
+    elif method in ['GET','DELETE','PUT','POST','OPTIONS']:
       self.method = method
     else:
       raise Exception('Not a valid method: ' + method)
-    if self.method in ['PUT','POST']:
-      self.headers['Content-Type'] = 'application/json'
+    return self
 
-  def send(self, method, url):
-    self.init_connection()
+  def get(self):
+    return self.method('GET')
 
-    self.method(method)
-    self.url = url
-    self.curl.setopt(self.curl.CUSTOMREQUEST, self.method)
-    self.curl.setopt(self.curl.URL, self.url)
+  def put(self):
+    return self.method('PUT')
 
-    self.buf = cStringIO.StringIO()
-    self.curl.setopt(self.curl.WRITEFUNCTION, self.buf.write)
-    self.curl.perform()
-    self.response_body = self.buf.getvalue()
-    self.buf.close()
-    self.curl.close()
+  def post(self):
+    return self.method('POST')
 
-    return self.response_body
+  def delete(self):
+    return self.method('DELETE')
 
+  def options(self):
+    return self.method('OPTIONS')
+
+  def __build_request(self):
+    curl = pycurl.Curl()
+    # curl options
+    for o in self.client.curl_options:
+      curl.setopt(o, self.client.curl_options[o])
+    for o in self.curl_options:
+      curl.setopt(o, self.curl_options[o])
+    # headers
+    hlist = []
+    for h in self.client.headers:
+      hlist.append(h + ": " + self.client.headers[h])
+    for h in self.headers:
+      hlist.append(h + ": " + self.headers[h])
+    curl.setopt(pycurl.HTTPHEADER, hlist)
+    if self.method:
+      curl.setopt(pycurl.CUSTOMREQUEST, self.method)
+    if self.resource:
+      curl.setopt(pycurl.URL, self.client.base_url + '/ws' + self.resource)
+    else:
+      raise Exception('Resource is missing')
+    return curl
+
+  def resource(self, ws):
+    self.resource = ws
+    return self
+
+  def content(self, content):
+    if self._verbose:
+      print '* Content:'
+      print content
+    self.curl_option(pycurl.POST,1)
+    self.curl_option(pycurl.POSTFIELDSIZE,len(content))
+    reader = cStringIO.StringIO(content)
+    self.curl_option(pycurl.READFUNCTION, reader.read)
+    return self
+
+  def send(self):
+    curl = self.__build_request()
+    hbuf = HeaderStorage()
+    cbuf = Storage()
+    curl.setopt(curl.WRITEFUNCTION, cbuf.store)
+    curl.setopt(curl.HEADERFUNCTION, hbuf.store)
+    curl.perform()
+    response = OpalResponse(curl.getinfo(pycurl.HTTP_CODE),hbuf.headers,cbuf.contents)
+    curl.close()
+    
+    return response
+
+#
+# Content storage
+#
+class Storage:
+  def __init__(self):
+    self.contents = ''
+    self.line = 0
+
+  def store(self, buf):
+    self.line = self.line + 1
+    self.contents = self.contents + buf
+
+  def __str__(self):
+    return self.contents
+
+#
+# Header storage
+#
+class HeaderStorage(Storage):
+  def __init__(self):
+    Storage.__init__(self)
+    self.headers = {}
+
+  def store(self, buf):
+    Storage.store(self, buf)
+    header = buf.partition(':')
+    if header[1]:
+      value = header[2].rstrip().strip()
+      if header[0] in self.headers:
+        current_value = self.headers[header[0]]
+        if isinstance(current_value, str):
+          self.headers[header[0]] = [current_value]
+        self.headers[header[0]].append(value)
+      else:
+        self.headers[header[0]] = value
+
+#
+# Opal Response
+#
+class OpalResponse:
+  def __init__(self, code, headers, content):
+    self.code = code
+    self.headers = headers
+    self.content = content
+
+  def pretty_json(self):
+    return json.dumps(json.loads(self.content), sort_keys=True, indent=2)
+
+  def __str__(self):
+    return self.content
 
 #
 # Build and send request
 #
-url = args.opal + '/ws' + args.ws
-opal = OpalRequest()
+opal = OpalClient(args.opal)
+
 if args.user:
-  opal.authenticate(args.user, args.password)
+  opal.credentials(args.user, args.password)
 else:
   opal.keys(args.key, args.cert)
+
+request = opal.request()
+request.fail_on_error()
 if args.accept:
-  opal.accept(args.accept)
+  request.accept(args.accept)
+else:
+  request.accept_json()
 if args.content_type:
-  opal.content_type(args.content)
-opal.verbose(args.verbose)
+  request.content_type(args.content)
+else:
+  request.content_type_json()
+if args.verbose:
+  request.verbose()
 
 try:
-  # format response
-  res = opal.send(args.method,url)
-  if args.json:
-    res = json.dumps(json.loads(res), sort_keys=True, indent=2)
+  # send request
+  request.method(args.method).resource(args.ws);
+  if args.stdin:
+    request.content(sys.stdin.read())
+  response = request.send()
 
-  # output to file
-  if args.out:
-    f = open(args.out, 'w')
-    f.write(res)
-    f.close()
-  else:
-    print res
+  # format response    
+  res = response.content
+  if args.json:
+    res = response.pretty_json()
+  elif args.method in ['OPTIONS']:
+    res = response.headers['Allow']
+
+  # output to stdout
+  print res
 except Exception,e :
-    print e
-    sys.exit(2)
+  print e
+  sys.exit(2)
 except pycurl.error, error:
   errno, errstr = error
   print >> sys.stderr, 'An error occurred: ', errstr
