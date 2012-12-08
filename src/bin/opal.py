@@ -7,9 +7,9 @@ import argparse
 # Add Opal access arguments
 #
 def add_opal_arguments(parser):
-  parser.add_argument('--opal', '-o', required=True, help='Opal server base url')
-  parser.add_argument('--user', '-u', required=True, help='User name')
-  parser.add_argument('--password', '-p', required=True, help='User password')
+  parser.add_argument('--opal', '-o', required=False, help='Opal server base url')
+  parser.add_argument('--user', '-u', required=False, help='User name')
+  parser.add_argument('--password', '-p', required=False, help='User password')
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Opal command line.')

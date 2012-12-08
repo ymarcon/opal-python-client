@@ -52,18 +52,41 @@ import base64
 import json
 import cStringIO
 import os.path
+import getpass
 
 #
 # Opal client
 #
 class OpalClient:
-  def __init__(self, base_url):
-    self.base_url = base_url
+  def __init__(self, args):
     self.curl_options = {}
     self.headers = {}
+    self.base_url = self.__ensure_entry('Opal address',args.opal)
+    if self.base_url.startswith('https:'):
+      self.verify_peer(0)
+      #self.verify_host(0)
+      #self.ssl_version(3)
+    #if args.cert:
+    #  print "Authentication by certificate not supported yet."
+    #  sys.exit(2)
+      #self.keys(args.cert, args.key)
+    #else:
+    self.credentials(args.user, args.password)
+
+  def __ensure_entry(self, text, entry,pwd=False):
+    e = entry
+    if not entry:
+      if pwd:
+        e = getpass.getpass(prompt=text + ': ')
+      else:
+        print text + ': ',
+        e = sys.stdin.readline().rstrip().strip()
+    return e
 
   def credentials(self, user, password):
-    return self.header('Authorization', 'X-Opal-Auth ' + base64.b64encode(user + ':' + password))
+    u = self.__ensure_entry('User name',user)
+    p = self.__ensure_entry('Password',password,True)
+    return self.header('Authorization', 'X-Opal-Auth ' + base64.b64encode(u + ':' + p))
 
   def keys(self, cert_file, key_file, key_pwd=None, ca_certs=None):
     self.curl_option(pycurl.SSLCERT, cert_file)
@@ -275,7 +298,7 @@ class OpalResponse:
 # Add REST command specific options
 #
 def add_arguments(parser):
-  parser.add_argument('--ws','-w', required=True, help='Web service path, for instance: /datasource/xxx/table/yyy/variable/vvv')
+  parser.add_argument('ws', help='Web service path, for instance: /datasource/xxx/table/yyy/variable/vvv')
   parser.add_argument('--method', '-m', required=False, help='HTTP method (default is GET, others are POST, PUT, DELETE, OPTIONS)')
   parser.add_argument('--accept', '-a', required=False, help='Accept header (default is application/json)')
   parser.add_argument('--content-type', '-ct', required=False, help='Content-Type header (default is application/json)')
@@ -288,17 +311,9 @@ def add_arguments(parser):
 #
 def do_command(args):
   # Build and send request
-  opal = OpalClient(args.opal)
+  opal = OpalClient(args)
 
-  if args.opal.startswith('https:'):
-    opal.verify_peer(0)
-    #opal.verify_host(0)
-    #opal.ssl_version(3)
 
-  if args.user:
-    opal.credentials(args.user, args.password)
-  #else:
-  #  opal.keys(args.cert, args.key)
 
   request = opal.request()
   request.fail_on_error()
