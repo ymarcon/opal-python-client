@@ -104,7 +104,8 @@ class OpalRequest:
     return self.curl_option(pycurl.FAILONERROR, True)
 
   def header(self, key, value):
-    self.headers[key] = value
+    if value:
+      self.headers[key] = value
     return self
 
   def accept(self, value):

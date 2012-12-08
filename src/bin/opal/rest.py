@@ -60,16 +60,17 @@ def do_command(args):
   try:
     request = opal.core.OpalClient(args).new_request()
     request.fail_on_error()
+    
     if args.accept:
       request.accept(args.accept)
     else:
       request.accept_json()
+
     if args.content_type:
       request.content_type(args.content)
       print 'Enter content:'
       request.content(sys.stdin.read())
-    else:
-      request.content_type_json()
+
     if args.verbose:
       request.verbose()
 
