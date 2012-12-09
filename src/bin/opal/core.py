@@ -183,11 +183,19 @@ class OpalRequest:
   def content_file(self, filename):
     if self._verbose:
       print '* File Content:'
-      print filename
+      print '[file=' + filename + ', size=' + str(os.path.getsize(filename)) + ']'
     self.curl_option(pycurl.POST,1)
     self.curl_option(pycurl.POSTFIELDSIZE,os.path.getsize(filename))
     reader = open(filename, 'rb')
     self.curl_option(pycurl.READFUNCTION, reader.read)
+    return self
+
+  def content_upload(self, filename):
+    if self._verbose:
+      print '* File Content:'
+      print '[file=' + filename + ', size=' + str(os.path.getsize(filename)) + ']'
+    self.curl_option(pycurl.POST,1)
+    self.curl_option(pycurl.HTTPPOST, [("file1", (pycurl.FORM_FILE, filename))])
     return self
 
   def send(self):
