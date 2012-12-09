@@ -253,3 +253,66 @@ class OpalResponse:
 
   def __str__(self):
     return self.content
+
+class MagmaNameResolver:
+  """
+  Decode Magma fully qualified names.
+  """
+  def __init__(self, name):
+    self.name = name
+    self.datasource,sep,remain = name.partition('.')
+    self.table,sep,self.variable = remain.partition(':')
+    if len(self.table) == 0:
+      self.table = None
+    if len(self.variable) == 0:
+      self.variable = None
+
+  def is_datasources(self):
+    return self.datasource == None or self.datasource == '*'
+
+  def is_datasource(self):
+    if self.table:
+      return False
+    else:
+      return True
+
+  def is_tables(self):
+    return self.table == '*'
+
+  def is_table(self):
+    if self.table and not self.variable:
+      return True
+    else:
+      return False
+
+  def is_variables(self):
+    return self.variable == '*'
+
+  def is_variable(self):
+    if self.variable:
+      return True
+    else:
+      return False
+
+  def get_ws(self):
+    if self.is_datasources():
+      if self.is_tables():
+        return '/datasources/tables'
+      else:
+        return '/datasources'
+    elif self.is_datasource():
+      return '/datasource/' + self.datasource
+    elif self.is_tables():
+      return '/datasource/' + self.datasource + '/tables'
+    elif self.is_table():
+      return self.get_table_ws()
+    elif self.is_variables():
+      return '/datasource/' + self.datasource + '/table/' + self.table + '/variables'
+    else:
+      return self.get_variable_ws()
+
+  def get_table_ws(self):
+    return '/datasource/' + self.datasource + '/table/' + self.table
+
+  def get_variable_ws(self):
+    return '/datasource/' + self.datasource + '/table/' + self.table + '/variable/' + self.variable

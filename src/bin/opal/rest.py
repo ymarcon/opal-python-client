@@ -50,8 +50,7 @@ def add_arguments(parser):
   parser.add_argument('--accept', '-a', required=False, help='Accept header (default is application/json)')
   parser.add_argument('--content-type', '-ct', required=False, help='Content-Type header (default is application/json)')
   parser.add_argument('--json', '-j', action='store_true', help='Pretty JSON formatting of the response')
-  parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
-
+  
 def do_command(args):
   """
   Execute REST command
